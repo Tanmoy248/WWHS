@@ -1,0 +1,357 @@
+DELIMITER $$
+CREATE PROCEDURE eligibilityfile_multi_mc(v_file_id bigint, v_data_source char(1), v_system_source_id varchar(10), v_staging_type varchar(10),v_staging_id bigint)
+begin
+
+DECLARE v_column_name varchar(100);
+DECLARE v_column_id, v_system_source_lookup_id bigint;
+DECLARE v_file_type varchar(500);
+DECLARE v_date DATETIME DEFAULT UTC_TIMESTAMP();
+
+#SET v_column_name = 'maintenance_code';
+
+drop temporary table if exists temp_multiple_mc;
+
+SELECT lookup_id
+INTO v_system_source_lookup_id
+FROM lookup
+WHERE lookup_group = 'System Source'
+AND lookup_value = v_system_source_id;
+
+IF(v_data_source = 'F') THEN
+
+	SET  v_column_id := fn_get_column_id(v_column_name,v_file_id,null,'P');	
+
+	SELECT eligibility_file_type_description
+	INTO v_file_type
+	FROM eligibility_file_type
+	WHERE eligibility_file_type_id = (SELECT eligibility_file_type_id FROM eligibility_file WHERE file_id = v_file_id);
+
+END IF;
+
+
+if lower(v_file_type) = 'complete' then
+
+# Handles all the rows with multiple updates (member_id update at the end)
+
+drop temporary table if exists temp_mbr_list;
+create temporary table temp_mbr_list
+as
+select A.member_id from
+(
+select 
+efsc.member_id
+, count(*)
+
+from eligibility_file_staging_complete as efsc
+where transition_id is not null and transition_id <>''
+and file_id = v_file_id
+and maintenance_code in ('01','02', '03')
+group by member_id
+having count(*) > 1
+) as A
+;
+
+drop temporary table if exists temp_multi_updates;
+create temporary table temp_multi_updates
+as
+select efsc.eligibility_file_staging_complete_id as reference_id, efsc.* from 
+eligibility_file_staging_complete as efsc
+inner join
+temp_mbr_list as tml
+on efsc.member_id = tml.member_id 
+and efsc.maintenance_code in ('01','02', '03')
+and efsc.file_id = v_file_id
+;
+
+# Treating all transition_id as member_id 
+drop temporary table if exists tmp_mbr_id_updates;
+create temporary table tmp_mbr_id_updates
+as
+select 
+efsc.transition_id
+from eligibility_file_staging_complete as efsc
+where transition_id is not null and transition_id <>''
+and file_id = v_file_id
+and maintenance_code in ('01','02', '03')
+;
+
+drop temporary table if exists temp_with_transition_filled;
+create temporary table temp_with_transition_filled
+as
+select  
+efsc.eligibility_file_staging_complete_id as reference_id
+,efsc.eligibility_file_staging_complete_id
+,efsc.is_invalid_row
+,efsc.is_duplicate_row
+,efsc.file_id
+,efsc.member_record_number
+,efsc.client_id
+,efsc.account_id
+,efsc.member_id
+,efsc.initial_member_id
+,efsc.date_of_birth
+,efsc.member_first_name
+,efsc.member_middle_initial
+,efsc.member_last_name
+,efsc.group_id
+,efsc.eligibility_effective_date
+,efsc.eligibility_end_date
+,efsc.referral_status
+,efsc.referral_start_date
+,efsc.referral_end_date
+,efsc.relationship_code
+,efsc.coverage_code
+,efsc.coverage_effective_date
+,efsc.maintenance_code
+,efsc.subsidy_override
+,efsc.gender
+,efsc.address_1
+,efsc.address_2
+,efsc.city
+,efsc.state
+,efsc.zipcode
+,efsc.email_address
+,efsc.phone_work
+,efsc.phone_home
+,efsc.phone_cell
+,efsc.locator_id
+,efsc.program_indicator
+,efsc.title
+,efsc.suffix
+,efsc.billing_pass_through
+,efsc.client_pass_through
+,efsc.filler_1
+,efsc.filler_2
+,efsc.transition_id
+,efsc.data_source
+,efsc.active
+,efsc.created_by
+,efsc.created_date
+,efsc.modified_by
+,efsc.modified_date
+from eligibility_file_staging_complete as efsc
+where transition_id is not null and transition_id <> ''
+and file_id = v_file_id
+;
+
+
+drop temporary table if exists temp_multiple_mc;
+	create temporary table temp_multiple_mc as
+  select efsc.* from 
+temp_with_transition_filled as efsc
+where 1 =2
+;
+
+insert into temp_multiple_mc
+  select efsc.* from 
+temp_with_transition_filled as efsc
+inner join
+tmp_mbr_id_updates as trf
+on efsc.member_id = trf.transition_id
+;
+
+
+
+drop table if exists temp_2_multiple_mc;
+create temporary table temp_2_multiple_mc
+select trf.* from temp_multi_updates as trf
+left outer join
+temp_multiple_mc  as tmm
+on trf.reference_id = tmm.reference_id
+where tmm.reference_id is null
+;
+
+insert into temp_multiple_mc
+select * from temp_2_multiple_mc;
+
+################################################
+# Create rows that contain update to member_id #
+################################################
+
+
+drop temporary table if exists temp_1_multiple_mc;
+create temporary table temp_1_multiple_mc
+as
+select trf.* from 
+temp_with_transition_filled as trf
+left outer join
+temp_multiple_mc  as tmm
+on trf.reference_id = tmm.reference_id
+where tmm.reference_id is null
+and trf.maintenance_code = '01'
+;
+
+insert into temp_multiple_mc
+select * from temp_1_multiple_mc;
+
+
+#select * from temp_multiple_mc;
+
+##########################################
+# Staging simplified block               #
+##########################################
+	
+elseif lower(v_file_type) = 'simplified' then
+
+# Handles all the rows with multiple updates (member_id update at the end)
+
+drop temporary table if exists temp_mbr_list;
+create temporary table temp_mbr_list
+as
+select A.member_id from
+(
+select 
+efsc.member_id
+, count(*)
+
+from eligibility_file_staging_simplified as efsc
+where transition_id is not null and transition_id <>''
+and file_id = v_file_id
+and maintenance_code in ('01','02', '03')
+group by member_id
+having count(*) > 1
+) as A
+;
+
+drop temporary table if exists temp_multi_updates;
+create temporary table temp_multi_updates
+as
+select efsc.eligibility_file_staging_simplified_id as reference_id, efsc.* from 
+eligibility_file_staging_simplified as efsc
+inner join
+temp_mbr_list as tml
+on efsc.member_id = tml.member_id 
+and efsc.maintenance_code in ('01','02', '03')
+and efsc.file_id = v_file_id
+;
+
+# Treating all transition_id as member_id 
+drop temporary table if exists tmp_mbr_id_updates;
+create temporary table tmp_mbr_id_updates
+as
+select 
+efsc.transition_id
+from eligibility_file_staging_simplified as efsc
+where transition_id is not null and transition_id <>''
+and file_id = v_file_id
+and maintenance_code in ('01','02', '03')
+;
+
+drop temporary table if exists temp_with_transition_filled;
+create temporary table temp_with_transition_filled
+as
+select  
+efsc.eligibility_file_staging_simplified_id as reference_id
+,efsc.eligibility_file_staging_simplified_id
+,efsc.is_invalid_row
+,efsc.is_duplicate_row
+,efsc.file_id
+,efsc.member_record_number
+,efsc.client_id
+,efsc.account_id
+,efsc.member_id
+,efsc.initial_member_id
+,efsc.date_of_birth
+,efsc.member_first_name
+,efsc.member_middle_initial
+,efsc.member_last_name
+,efsc.group_id
+,efsc.eligibility_effective_date
+,efsc.eligibility_end_date
+,efsc.referral_status
+,efsc.referral_start_date
+,efsc.referral_end_date
+,efsc.relationship_code
+,efsc.coverage_code
+,efsc.coverage_effective_date
+,efsc.maintenance_code
+,efsc.subsidy_override
+,efsc.gender
+#,efsc.address_1
+#,efsc.address_2
+#,efsc.city
+#,efsc.state
+#,efsc.zipcode
+#,efsc.email_address
+#,efsc.phone_work
+#,efsc.phone_home
+#,efsc.phone_cell
+,efsc.locator_id
+,efsc.program_indicator
+#,efsc.title
+#,efsc.suffix
+,efsc.billing_pass_through
+,efsc.client_pass_through
+,efsc.filler_1
+,efsc.filler_2
+,efsc.transition_id
+,efsc.data_source
+,efsc.active
+,efsc.created_by
+,efsc.created_date
+,efsc.modified_by
+,efsc.modified_date
+from eligibility_file_staging_complete as efsc
+where transition_id is not null and transition_id <> ''
+and file_id = v_file_id
+;
+
+
+drop temporary table if exists temp_multiple_mc;
+	create temporary table temp_multiple_mc as
+  select efsc.* from 
+temp_with_transition_filled as efsc
+where 1 =2
+;
+
+insert into temp_multiple_mc
+  select efsc.* from 
+temp_with_transition_filled as efsc
+inner join
+tmp_mbr_id_updates as trf
+on efsc.member_id = trf.transition_id
+;
+
+
+drop table if exists temp_2_multiple_mc;
+create temporary table temp_2_multiple_mc
+select trf.* from temp_multi_updates as trf
+left outer join
+temp_multiple_mc  as tmm
+on trf.reference_id = tmm.reference_id
+where tmm.reference_id is null
+;
+
+insert into temp_multiple_mc
+select * from temp_2_multiple_mc;
+
+################################################
+# Create rows that contain update to member_id #
+################################################
+
+
+drop temporary table if exists temp_1_multiple_mc;
+create temporary table temp_1_multiple_mc
+as
+select trf.* from 
+temp_with_transition_filled as trf
+left outer join
+temp_multiple_mc  as tmm
+on trf.reference_id = tmm.reference_id
+where tmm.reference_id is null
+and trf.maintenance_code = '01'
+;
+
+insert into temp_multiple_mc
+select * from temp_1_multiple_mc;
+
+
+#select * from temp_multiple_mc;
+
+end if;			
+
+
+commit;
+
+end$$
+DELIMITER ;

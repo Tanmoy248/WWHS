@@ -1,0 +1,244 @@
+drop procedure if exists multi_update_mbr;
+DELIMITER $$
+CREATE PROCEDURE multi_update_mbr(v_file_id bigint)
+begin
+declare done int default 0;
+declare a, b int default 0;
+declare v_mbr_id, v_mbr_rec_no, v_ref_id, v_mbr_id_old varchar(500);
+declare v_error, v_file_type varchar(500);
+DECLARE cur1 CURSOR FOR SELECT reference_id, member_id, member_record_number FROM temp_multiple_mc order by member_record_number;
+declare continue handler for not found set done=1;
+
+set v_error = 'start';
+
+	SELECT eligibility_file_type_description
+	INTO v_file_type
+	FROM eligibility_file_type
+	WHERE eligibility_file_type_id = (SELECT eligibility_file_type_id FROM eligibility_file WHERE file_id = v_file_id);
+
+
+if lower(v_file_type) = 'complete' then
+open cur1;
+strt1 : loop
+	fetch cur1 into v_ref_id, v_mbr_id, v_mbr_rec_no;
+	#set v_error = 'line15';
+	if done = 1 then leave strt1;
+	end if;
+	select count(1) into a from eligibility_data where member_id = v_mbr_id;
+	#select v_mbr_id, v_mbr_rec_no;
+	if a > 0 then
+	set sql_safe_updates = 0;
+	set foreign_key_checks = 0;
+
+		update eligibility_data ed
+		inner join
+		temp_multiple_mc as efsc
+		on ed.member_id = efsc.member_id
+		and ed.member_first_name = efsc.member_first_name
+		and cast(date_format(ed.date_of_birth, "%m%d%Y") as char(10))= cast(efsc.date_of_birth as char(10))
+		and ed.group_id = efsc.group_id
+		set 
+			ed.member_id = case when efsc.maintenance_code = '01' and efsc.transition_id is not null and efsc.transition_id <> '' then efsc.transition_id else efsc.member_id end,
+			#ed.date_of_birth = case when efsc.maintenance_code = '02' then str_to_date(efsc.transition_id, "%m%d%Y") else str_to_date(efsc.date_of_birth, "%m%d%Y") end,
+			#ed.member_first_name = case when efsc.maintenance_code = '03' then efsc.transition_id else efsc.member_first_name end,
+			ed.modified_by = efsc.modified_by,
+			ed.modified_date = efsc.modified_date,
+			ed.file_id = efsc.file_id,
+		#ed.eligibility_file_type_id = efsc.eligibility_file_type_id,
+		ed.client_id = efsc.client_id,
+		#ed.account_id = efsc.account_id,
+		ed.initial_member_id = efsc.initial_member_id,
+		ed.member_middle_initial = efsc.member_middle_initial,
+		ed.member_last_name = efsc.member_last_name,
+		ed.group_id = efsc.group_id,
+		ed.eligibility_effective_date = str_to_date(efsc.eligibility_effective_date, "%m%d%Y"),
+		ed.eligibility_end_date = CASE WHEN efsc.eligibility_end_date = '' THEN '2099-01-01'  WHEN efsc.eligibility_end_date IS NULL THEN '2099-01-01'  ELSE str_to_date(efsc.eligibility_end_date, "%m%d%Y") END,
+		ed.referral_status = efsc.referral_status,
+		ed.referral_start_date = efsc.referral_start_date,
+		ed.referral_end_date = efsc.referral_end_date,
+		ed.relationship_code_id = efsc.relationship_code,#(SELECT LOOKUP_ID FROM `eligibility`.lookup where lookup_group = 'RELATIONSHIP' AND lookup_key=efsc.relationship_code),
+		ed.coverage_code_id = efsc.coverage_code,#(SELECT LOOKUP_ID FROM `eligibility`.lookup where lookup_group = 'COVERAGE' AND lookup_key=efsc.coverage_code),
+		ed.coverage_effective_date = str_to_date(efsc.coverage_effective_date, "%m%d%Y"),
+		ed.maintenance_code_id = efsc.maintenance_code,#(SELECT LOOKUP_ID FROM `eligibility`.lookup where lookup_group = 'MAINTENANCE' AND lookup_key=efsc.maintenance_code),
+		ed.subsidy_override = efsc.subsidy_override,
+		ed.gender_id = efsc.gender,# (SELECT LOOKUP_ID FROM `eligibility`.lookup where lookup_group = 'GENDER' AND lookup_key=efsc.gender),
+		ed.address_1 = efsc.address_1,
+		ed.address_2 = efsc.address_2,
+		ed.city = efsc.city,
+		ed.state_id = (SELECT state_id from state where state_abbreviation = efsc.state),
+		ed.zipcode = efsc.zipcode,
+		ed.email_address = efsc.email_address,
+		ed.phone_work = efsc.phone_work,
+		ed.phone_home = efsc.phone_home,
+		ed.phone_cell = efsc.phone_cell,
+		ed.locator_id = CASE WHEN efsc.locator_id = '' THEN null else efsc.locator_id end,
+		#ed.program_indicator_id = efsc.program_indicator_id,
+		ed.title = efsc.title,
+		ed.suffix = efsc.suffix,
+		ed.billing_pass_through = efsc.billing_pass_through,
+		ed.client_pass_through = efsc.client_pass_through,
+		ed.filler_1 = efsc.filler_1,
+		ed.filler_2 = efsc.filler_2,
+		ed.transition_id = efsc.transition_id,
+		#ed.data_source_id = efsc.data_source_id,
+		#ed.system_source_id = efsc.system_source_id,
+		ed.active = efsc.active,
+		ed.created_by = efsc.created_by,
+		ed.created_date = efsc.created_date,
+		ed.relationship_code_desc = (select lookup_value from lookup where lookup_group='RELATIONSHIP' and lookup_key=efsc.relationship_code),
+		ed.maintenance_code_desc = (select lookup_value from lookup where lookup_group='MAINTENANCE' and lookup_key=efsc.maintenance_code),
+		ed.coverage_code_desc = (select lookup_value from lookup where lookup_group='COVERAGE' and lookup_key=efsc.coverage_code),
+		ed.gender_desc = (select lookup_value from lookup where lookup_group='GENDER' and lookup_key=efsc.gender)
+		where efsc.reference_id = v_ref_id
+		and efsc.maintenance_code = '01'
+		;
+
+		update eligibility_data ed
+		inner join
+		temp_multiple_mc as tmm
+		on ed.member_id = tmm.member_id
+		and ed.member_first_name = tmm.member_first_name
+		and cast(date_format(ed.date_of_birth, "%m%d%Y") as char(10))= cast(tmm.date_of_birth as char(10))
+		and ed.group_id = tmm.group_id
+		set 
+			ed.date_of_birth = date_format(str_to_date(tmm.transition_id, "%m%d%Y"), "%Y-%m-%d")
+		where tmm.reference_id = v_ref_id
+		and tmm.maintenance_code = '02'
+		;
+
+		update eligibility_data ed
+		inner join
+		temp_multiple_mc as tmm
+		on ed.member_id = tmm.member_id
+		and ed.member_first_name = tmm.member_first_name
+		and cast(date_format(ed.date_of_birth, "%m%d%Y") as char(10))= cast(tmm.date_of_birth as char(10))
+		and ed.group_id = tmm.group_id
+		set 
+			ed.member_first_name = tmm.transition_id
+		where tmm.reference_id = v_ref_id
+		and tmm.maintenance_code = '03'
+		;
+
+	
+	set sql_safe_updates = 1;
+
+	end if;
+end loop;
+
+elseif lower(v_file_type) = 'simplified' then
+open cur1;
+strt1 : loop
+	fetch cur1 into v_ref_id, v_mbr_id, v_mbr_rec_no;
+	#set v_error = 'line15';
+	if done = 1 then leave strt1;
+	end if;
+	select count(1) into a from eligibility_data where member_id = v_mbr_id;
+	#select v_mbr_id, v_mbr_rec_no;
+	if a > 0 then
+	set sql_safe_updates = 0;
+	set foreign_key_checks = 0;
+
+		update eligibility_data ed
+		inner join
+		temp_multiple_mc as efsc
+		on ed.member_id = efsc.member_id
+		and ed.member_first_name = efsc.member_first_name
+		and cast(date_format(ed.date_of_birth, "%m%d%Y") as char(10))= cast(efsc.date_of_birth as char(10))
+		and ed.group_id = efsc.group_id
+		set 
+			ed.member_id = case when efsc.maintenance_code = '01' and efsc.transition_id is not null and efsc.transition_id <> '' then efsc.transition_id else efsc.member_id end,
+			#ed.date_of_birth = case when efsc.maintenance_code = '02' then str_to_date(efsc.transition_id, "%m%d%Y") else str_to_date(efsc.date_of_birth, "%m%d%Y") end,
+			#ed.member_first_name = case when efsc.maintenance_code = '03' then efsc.transition_id else efsc.member_first_name end,
+			ed.modified_by = efsc.modified_by,
+			ed.modified_date = efsc.modified_date,
+			ed.file_id = efsc.file_id,
+		#ed.eligibility_file_type_id = efsc.eligibility_file_type_id,
+		ed.client_id = efsc.client_id,
+		#ed.account_id = efsc.account_id,
+		ed.initial_member_id = efsc.initial_member_id,
+		ed.member_middle_initial = efsc.member_middle_initial,
+		ed.member_last_name = efsc.member_last_name,
+		ed.group_id = efsc.group_id,
+		ed.eligibility_effective_date = str_to_date(efsc.eligibility_effective_date, "%m%d%Y"),
+		ed.eligibility_end_date = CASE WHEN efsc.eligibility_end_date = '' THEN '2099-01-01'  WHEN efsc.eligibility_end_date IS NULL THEN '2099-01-01'  ELSE str_to_date(efsc.eligibility_end_date, "%m%d%Y") END,
+		ed.referral_status = efsc.referral_status,
+		ed.referral_start_date = efsc.referral_start_date,
+		ed.referral_end_date = efsc.referral_end_date,
+		ed.relationship_code_id = efsc.relationship_code,#(SELECT LOOKUP_ID FROM `eligibility`.lookup where lookup_group = 'RELATIONSHIP' AND lookup_key=efsc.relationship_code),
+		ed.coverage_code_id = efsc.coverage_code,#(SELECT LOOKUP_ID FROM `eligibility`.lookup where lookup_group = 'COVERAGE' AND lookup_key=efsc.coverage_code),
+		ed.coverage_effective_date = str_to_date(efsc.coverage_effective_date, "%m%d%Y"),
+		ed.maintenance_code_id = efsc.maintenance_code,#(SELECT LOOKUP_ID FROM `eligibility`.lookup where lookup_group = 'MAINTENANCE' AND lookup_key=efsc.maintenance_code),
+		ed.subsidy_override = efsc.subsidy_override,
+		ed.gender_id = efsc.gender,# (SELECT LOOKUP_ID FROM `eligibility`.lookup where lookup_group = 'GENDER' AND lookup_key=efsc.gender),
+		#ed.address_1 = efsc.address_1,
+		#ed.address_2 = efsc.address_2,
+		#ed.city = efsc.city,
+		#ed.state_id = (SELECT state_id from state where state_abbreviation = efsc.state),
+		#ed.zipcode = efsc.zipcode,
+		#ed.email_address = efsc.email_address,
+		#ed.phone_work = efsc.phone_work,
+		#ed.phone_home = efsc.phone_home,
+		#ed.phone_cell = efsc.phone_cell,
+		ed.locator_id = CASE WHEN efsc.locator_id = '' THEN null else efsc.locator_id end,
+		ed.program_indicator_id = efsc.program_indicator_id,
+		#ed.title = efsc.title,
+		#ed.suffix = efsc.suffix,
+		ed.billing_pass_through = efsc.billing_pass_through,
+		ed.client_pass_through = efsc.client_pass_through,
+		ed.filler_1 = efsc.filler_1,
+		ed.filler_2 = efsc.filler_2,
+		ed.transition_id = efsc.transition_id,
+		#ed.data_source_id = efsc.data_source_id,
+		#ed.system_source_id = efsc.system_source_id,
+		ed.active = efsc.active,
+		ed.created_by = efsc.created_by,
+		ed.created_date = efsc.created_date,
+		ed.relationship_code_desc = (select lookup_value from lookup where lookup_group='RELATIONSHIP' and lookup_key=efsc.relationship_code),
+		ed.maintenance_code_desc = (select lookup_value from lookup where lookup_group='MAINTENANCE' and lookup_key=efsc.maintenance_code),
+		ed.coverage_code_desc = (select lookup_value from lookup where lookup_group='COVERAGE' and lookup_key=efsc.coverage_code),
+		ed.gender_desc = (select lookup_value from lookup where lookup_group='GENDER' and lookup_key=efsc.gender)
+		where efsc.reference_id = v_ref_id
+		and efsc.maintenance_code = '01'
+		;
+
+		update eligibility_data ed
+		inner join
+		temp_multiple_mc as tmm
+		on ed.member_id = tmm.member_id
+		and ed.member_first_name = tmm.member_first_name
+		and cast(date_format(ed.date_of_birth, "%m%d%Y") as char(10))= cast(tmm.date_of_birth as char(10))
+		and ed.group_id = tmm.group_id
+		set 
+			ed.date_of_birth = date_format(str_to_date(tmm.transition_id, "%m%d%Y"), "%Y-%m-%d")
+		where tmm.reference_id = v_ref_id
+		and tmm.maintenance_code = '02'
+		;
+
+		update eligibility_data ed
+		inner join
+		temp_multiple_mc as tmm
+		on ed.member_id = tmm.member_id
+		and ed.member_first_name = tmm.member_first_name
+		and cast(date_format(ed.date_of_birth, "%m%d%Y") as char(10))= cast(tmm.date_of_birth as char(10))
+		and ed.group_id = tmm.group_id
+		set 
+			ed.member_first_name = tmm.transition_id
+		where tmm.reference_id = v_ref_id
+		and tmm.maintenance_code = '03'
+		;
+
+	
+	set sql_safe_updates = 1;
+
+	end if;
+		
+	#select transition_id into v_mbr_id_old from temp_multiple_mc where maintenance_code = '01';
+	#select v_mbr_id, a;
+	#select transition_id into maintenance_code = '02' then transition_id end into v_mbr_dob_old
+set foreign_key_checks = 1;	
+end loop;
+
+end if;
+
+end$$
+DELIMITER ;
