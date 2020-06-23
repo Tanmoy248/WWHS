@@ -44,7 +44,7 @@ CREATE TABLE `account_vendor` (
   CONSTRAINT `account_vendor_ibfk_1` FOREIGN KEY (`wwhs_error_report_review_required_id`) REFERENCES `lookup` (`lookup_id`),
   CONSTRAINT `fk_reconciliation_reporting_id` FOREIGN KEY (`reconciliation_reporting_id`) REFERENCES `lookup` (`lookup_id`),
   CONSTRAINT `fk_wwhs_error_report_review_required_id` FOREIGN KEY (`wwhs_error_report_review_required_id`) REFERENCES `lookup` (`lookup_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Stores the account related information that the vendor will ';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Stores the account related information that the vendor';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
